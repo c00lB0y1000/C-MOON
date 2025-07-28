@@ -3,93 +3,86 @@ local Character = Player.Character or Player.CharacterAdded:Wait()
 local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Создаем видимые всем части
-local function createVisiblePart()
+-- Ожидаем RemoteEvent
+local CMoonRemote = ReplicatedStorage:WaitForChild("CMoonRemote")
+
+-- Создаем видимые всем эффекты
+local function createEffectForAll(effectName, position)
+    -- Отправляем на сервер, чтобы переслал всем
+    CMoonRemote:FireServer(effectName, position)
+end
+
+-- Обработчик эффектов от других игроков
+CMoonRemote.OnClientEvent:Connect(function(senderPlayer, effectName, position)
+    if senderPlayer == Player then return end -- Свои эффекты мы обрабатываем отдельно
+    
+    if effectName == "GravityFlip" then
+        spawnGravityFlipEffect(position)
+    elseif effectName == "GravityPush" then
+        spawnGravityPushEffect(position)
+    end
+end)
+
+-- Эффекты (одинаковые для всех игроков)
+function spawnGravityFlipEffect(position)
     local part = Instance.new("Part")
-    part.Anchored = false
+    part.Anchored = true
     part.CanCollide = false
     part.Transparency = 0.7
     part.Color = Color3.fromRGB(255, 100, 100)
-    part.Size = Vector3.new(5, 5, 5)
+    part.Size = Vector3.new(10, 0.2, 10)
+    part.CFrame = CFrame.new(position) * CFrame.Angles(math.rad(90), 0, 0)
     part.Material = Enum.Material.Neon
-    
-    -- Делаем часть физически управляемой нашим клиентом
     part.Parent = workspace
-    if part:IsA("BasePart") then
-        local networkOwner = Player
-        pcall(function()
-            part:SetNetworkOwner(networkOwner)
-        end)
-    end
     
-    return part
-end
-
--- Эффект гравитационного переворота (C-Moon основная способность)
-local function gravityFlipEffect(targetPosition)
-    local parts = {}
-    
-    -- Создаем кольцо эффекта
-    for i = 1, 12 do
-        local part = createVisiblePart()
-        part.Shape = Enum.PartType.Ball
-        part.Position = targetPosition + Vector3.new(0, 5, 0)
-        table.insert(parts, part)
-    end
-    
-    -- Анимация эффекта
-    local duration = 2
-    local startTime = time()
-    
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        local elapsed = time() - startTime
-        if elapsed > duration then
-            connection:Disconnect()
-            for _, part in ipairs(parts) do
-                part:Destroy()
-            end
-            return
-        end
-        
-        local progress = elapsed / duration
-        local radius = 10 * progress
-        local height = 5 * (1 - progress)
-        
-        for i, part in ipairs(parts) do
-            local angle = math.rad(i * 30)
-            local x = math.cos(angle) * radius
-            local z = math.sin(angle) * radius
-            part.Position = targetPosition + Vector3.new(x, height, z)
-            part.Size = Vector3.new(3, 3, 3) * (1 - progress)
-        end
-    end)
-end
-
--- Эффект гравитационного толчка
-local function gravityPushEffect()
-    local center = HumanoidRootPart.Position
-    local part = createVisiblePart()
-    part.Shape = Enum.PartType.Cylinder
-    part.Size = Vector3.new(1, 10, 10)
-    part.Position = center
-    
+    -- Анимация
     local duration = 1.5
-    local startTime = time()
+    local start = time()
     
     local connection
     connection = RunService.Heartbeat:Connect(function()
-        local elapsed = time() - startTime
+        local elapsed = time() - start
         if elapsed > duration then
             connection:Disconnect()
             part:Destroy()
             return
         end
         
-        local progress = elapsed / duration
-        part.Size = Vector3.new(1, 10 + 20 * progress, 10 + 20 * progress)
-        part.Transparency = 0.7 + 0.3 * progress
+        local progress = elapsed/duration
+        part.Transparency = 0.3 + progress*0.7
+        part.Size = Vector3.new(10 + 15*progress, 0.2, 10 + 15*progress)
+    end)
+end
+
+function spawnGravityPushEffect(position)
+    local part = Instance.new("Part")
+    part.Shape = Enum.PartType.Ball
+    part.Anchored = true
+    part.CanCollide = false
+    part.Transparency = 0.5
+    part.Color = Color3.fromRGB(200, 150, 255)
+    part.Size = Vector3.new(5, 5, 5)
+    part.Position = position
+    part.Material = Enum.Material.Neon
+    part.Parent = workspace
+    
+    local duration = 1.2
+    local start = time()
+    
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        local elapsed = time() - start
+        if elapsed > duration then
+            connection:Disconnect()
+            part:Destroy()
+            return
+        end
+        
+        local progress = elapsed/duration
+        part.Size = Vector3.new(5 + 20*progress, 5 + 20*progress, 5 + 20*progress)
+        part.Transparency = 0.5 + progress*0.5
     end)
 end
 
@@ -101,8 +94,9 @@ local abilities = {
         cooldown = 8,
         ready = true,
         action = function()
-            local target = HumanoidRootPart.Position + HumanoidRootPart.CFrame.LookVector * 20
-            gravityFlipEffect(target)
+            local target = HumanoidRootPart.Position + HumanoidRootPart.CFrame.LookVector * 15
+            spawnGravityFlipEffect(target)
+            createEffectForAll("GravityFlip", target)
         end
     },
     {
@@ -110,7 +104,10 @@ local abilities = {
         key = Enum.KeyCode.E,
         cooldown = 4,
         ready = true,
-        action = gravityPushEffect
+        action = function()
+            spawnGravityPushEffect(HumanoidRootPart.Position)
+            createEffectForAll("GravityPush", HumanoidRootPart.Position)
+        end
     }
 }
 
@@ -123,51 +120,39 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             ability.ready = false
             ability.action()
             
-            -- Перезарядка
             task.delay(ability.cooldown, function()
                 ability.ready = true
-                print(ability.name.." ready!")
             end)
         end
     end
 end)
 
--- Визуальные эффекты персонажа (постоянные)
-local function setupCharacterEffects()
-    -- Создаем ауру вокруг персонажа
+-- Постоянная аура персонажа
+local function createAura()
     local aura = Instance.new("Part")
     aura.Name = "CMoonAura"
     aura.Shape = Enum.PartType.Ball
-    aura.Size = Vector3.new(10, 10, 10)
-    aura.Transparency = 0.9
-    aura.Color = Color3.fromRGB(255, 150, 150)
+    aura.Size = Vector3.new(12, 12, 12)
+    aura.Transparency = 0.85
+    aura.Color = Color3.fromRGB(255, 120, 120)
     aura.Material = Enum.Material.Neon
     aura.Anchored = false
     aura.CanCollide = false
-    aura.Parent = Character
     
     local weld = Instance.new("WeldConstraint")
     weld.Part0 = HumanoidRootPart
     weld.Part1 = aura
     weld.Parent = aura
     
-    -- Делаем видимым для всех
-    if aura:IsA("BasePart") then
-        pcall(function()
-            aura:SetNetworkOwner(nil) -- Это сделает часть видимой для всех
-        end)
-    end
+    aura.Parent = Character
     
-    -- Анимируем ауру
+    -- Анимация ауры
     RunService.Heartbeat:Connect(function()
-        aura.Size = Vector3.new(10 + math.sin(time() * 3) * 2, 10 + math.cos(time() * 3) * 2, 10)
+        local pulse = math.sin(time() * 3) * 0.5 + 1
+        aura.Size = Vector3.new(12 * pulse, 12 * pulse, 12 * pulse)
     end)
 end
 
 -- Инициализация
-Character:WaitForChild("Humanoid").Died:Connect(function()
-    workspace:FindFirstChild("CMoonAura"):Destroy()
-end)
-
-setupCharacterEffects()
-print("C-Moon powers activated! Use Q and E")
+createAura()
+print("C-Moon powers activated! Use Q (Flip) and E (Push)")
